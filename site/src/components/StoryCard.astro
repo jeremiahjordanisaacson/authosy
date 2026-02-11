@@ -14,13 +14,20 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
 const dateStr = new Date(date_published).toLocaleDateString('en-US', {
   year: 'numeric', month: 'short', day: 'numeric'
 });
+
+const regionColors: Record<string, { bg: string; text: string }> = {
+  seattle: { bg: 'var(--c-seattle-bg)', text: 'var(--c-seattle)' },
+  usa: { bg: 'var(--c-usa-bg)', text: 'var(--c-usa)' },
+  world: { bg: 'var(--c-world-bg)', text: 'var(--c-world)' },
+};
+const rc = regionColors[region] || regionColors.usa;
 ---
 <article class="story-card">
-  <h3><a href={`${base}stories/${slug.replace(/\.md$/, '')}/`}>{title}</a></h3>
   <div class="story-meta">
-    <span class="region-badge">{region}</span>
+    <span class="region-badge" style={`background:${rc.bg}; color:${rc.text};`}>{region}</span>
     <time datetime={date_published}>{dateStr}</time>
   </div>
+  <h3><a href={`${base}stories/${slug.replace(/\.md$/, '')}/`}>{title}</a></h3>
   <p class="story-summary">{summary}</p>
   <div class="story-tags">
     {tags.slice(0, 4).map((tag) => <span class="tag">{tag}</span>)}

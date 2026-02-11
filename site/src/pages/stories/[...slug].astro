@@ -12,23 +12,43 @@ export async function getStaticPaths() {
 
 const { story } = Astro.props;
 const { Content } = await render(story);
+const rawBase = import.meta.env.BASE_URL;
+const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
 
 const dateStr = new Date(story.data.date_published).toLocaleDateString('en-US', {
   year: 'numeric', month: 'long', day: 'numeric'
 });
+
+const regionColors: Record<string, { bg: string; text: string }> = {
+  seattle: { bg: 'var(--c-seattle-bg)', text: 'var(--c-seattle)' },
+  usa: { bg: 'var(--c-usa-bg)', text: 'var(--c-usa)' },
+  world: { bg: 'var(--c-world-bg)', text: 'var(--c-world)' },
+};
+const rc = regionColors[story.data.region] || regionColors.usa;
+
+const positivityPct = Math.round(story.data.positivity_score * 100);
+const confidencePct = Math.round(story.data.confidence_score * 100);
 ---
 <BaseLayout title={story.data.title} description={story.data.summary}>
   <article class="story-article">
+    <a href={`${base}${story.data.region}/`} class="story-back-link">&larr; Back to {story.data.region === 'usa' ? 'USA' : story.data.region.charAt(0).toUpperCase() + story.data.region.slice(1)}</a>
+
     <h1>{story.data.title}</h1>
 
     <div class="story-meta-header">
-      <span class="region-badge">{story.data.region}</span>
+      <span class="region-badge" style={`background:${rc.bg}; color:${rc.text};`}>{story.data.region}</span>
       <time datetime={story.data.date_published}>{dateStr}</time>
-      <span>Positivity: {Math.round(story.data.positivity_score * 100)}%</span>
-      <span>Confidence: {Math.round(story.data.confidence_score * 100)}%</span>
+      <span class="score-badge">
+        <span class="score-dot positive"></span>
+        Positivity {positivityPct}%
+      </span>
+      <span class="score-badge">
+        <span class="score-dot confidence"></span>
+        Confidence {confidencePct}%
+      </span>
     </div>
 
-    <div class="story-tags" style="margin-bottom:1.5rem;">
+    <div class="story-tags" style="margin-bottom:1.75rem;">
       {story.data.tags.map((tag: string) => <span class="tag">{tag}</span>)}
     </div>
 
@@ -40,9 +60,24 @@ const dateStr = new Date(story.data.date_published).toLocaleDateString('en-US', 
       <h2>Sources</h2>
       <ul>
         {story.data.source_urls.map((url: string) => (
-          <li><a href={url} target="_blank" rel="noopener">{url}</a></li>
+          <li><a href={url} target="_blank" rel="noopener">{new URL(url).hostname.replace('www.', '')}</a></li>
         ))}
       </ul>
     </div>
   </article>
 </BaseLayout>
+
+<style>
+  .story-back-link {
+    display: inline-block;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--c-text-light);
+    margin-bottom: 1.5rem;
+    transition: color 0.2s var(--ease-out);
+  }
+  .story-back-link:hover {
+    color: var(--c-forest);
+    text-decoration: none;
+  }
+</style>

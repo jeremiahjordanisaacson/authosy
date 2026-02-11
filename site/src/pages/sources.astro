@@ -27,32 +27,38 @@ const sources = {
 };
 ---
 <BaseLayout title="Sources">
-  <div class="prose">
-    <h1 class="page-title">Sources</h1>
-    <p>
-      We monitor these reputable news outlets. Every published story is verified
-      by at least two independent sources from this list.
-    </p>
+  <h1 class="page-title">Our Sources</h1>
+  <p class="page-subtitle">
+    We monitor these reputable outlets. Every published story is corroborated
+    by at least two independent sources.
+  </p>
 
-    <h2>Seattle &amp; Pacific Northwest</h2>
-    <ul>
-      {sources.seattle.map(s => (
-        <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
-      ))}
-    </ul>
+  <div class="source-grid">
+    <div class="source-card seattle">
+      <h3>Seattle & PNW</h3>
+      <ul>
+        {sources.seattle.map(s => (
+          <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
+        ))}
+      </ul>
+    </div>
 
-    <h2>United States</h2>
-    <ul>
-      {sources.usa.map(s => (
-        <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
-      ))}
-    </ul>
+    <div class="source-card usa">
+      <h3>United States</h3>
+      <ul>
+        {sources.usa.map(s => (
+          <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
+        ))}
+      </ul>
+    </div>
 
-    <h2>World</h2>
-    <ul>
-      {sources.world.map(s => (
-        <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
-      ))}
-    </ul>
+    <div class="source-card world">
+      <h3>World</h3>
+      <ul>
+        {sources.world.map(s => (
+          <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
+        ))}
+      </ul>
+    </div>
   </div>
 </BaseLayout>
