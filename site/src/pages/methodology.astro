@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+const rawBase = import.meta.env.BASE_URL;
+const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
 ---
 <BaseLayout title="Methodology">
   <div class="prose">
@@ -14,7 +16,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     <p>
       We monitor RSS feeds from dozens of reputable news outlets covering Seattle,
       national US news, and world news. The full list of sources is available on
-      the <a href={`${import.meta.env.BASE_URL}sources/`}>Sources page</a>.
+      the <a href={`${base}sources/`}>Sources page</a>.
     </p>
 
     <h2>2. Positivity filtering</h2>

@@ -5,7 +5,8 @@ interface Props {
 }
 
 const { title, description = 'Uplifting, verified news from Seattle, the USA, and the world.' } = Astro.props;
-const base = import.meta.env.BASE_URL;
+const rawBase = import.meta.env.BASE_URL;
+const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
 ---
 <!doctype html>
 <html lang="en">
