@@ -1,0 +1,34 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import StoryCard from '../../components/StoryCard.astro';
+import { getCollection } from 'astro:content';
+
+const allStories = await getCollection('stories');
+const stories = allStories
+  .filter(s => s.data.region === 'world')
+  .sort((a, b) => new Date(b.data.date_published).getTime() - new Date(a.data.date_published).getTime());
+---
+<BaseLayout title="World">
+  <h1 class="page-title">World</h1>
+  <p class="page-subtitle">Good news from around the globe.</p>
+
+  {stories.length > 0 ? (
+    <div class="story-grid">
+      {stories.map((story) => (
+        <StoryCard
+          slug={story.id}
+          title={story.data.title}
+          region={story.data.region}
+          date_published={story.data.date_published}
+          summary={story.data.summary}
+          tags={story.data.tags}
+        />
+      ))}
+    </div>
+  ) : (
+    <div class="empty-state">
+      <h2>No world stories yet</h2>
+      <p>Uplifting global news will appear here once verified.</p>
+    </div>
+  )}
+</BaseLayout>

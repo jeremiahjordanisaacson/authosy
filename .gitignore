@@ -1,0 +1,27 @@
+# Node
+node_modules/
+site/dist/
+site/.astro/
+
+# .NET
+service/Authosy.Service/bin/
+service/Authosy.Service/obj/
+service/Authosy.Service/logs/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.pfx
+credentials.json
+
+# State file is tracked (needed for dedup) but ignore local overrides
+# service/state.json

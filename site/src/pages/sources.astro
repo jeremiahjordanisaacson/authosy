@@ -1,0 +1,58 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const sources = {
+  seattle: [
+    { name: 'The Seattle Times', url: 'https://www.seattletimes.com' },
+    { name: 'KING 5 News', url: 'https://www.king5.com' },
+    { name: 'KOMO News', url: 'https://komonews.com' },
+    { name: 'Crosscut', url: 'https://crosscut.com' },
+    { name: 'Seattle Met', url: 'https://www.seattlemet.com' },
+  ],
+  usa: [
+    { name: 'Associated Press', url: 'https://apnews.com' },
+    { name: 'Reuters', url: 'https://www.reuters.com' },
+    { name: 'NPR', url: 'https://www.npr.org' },
+    { name: 'Good News Network', url: 'https://www.goodnewsnetwork.org' },
+    { name: 'Positive News', url: 'https://www.positive.news' },
+    { name: 'USA Today', url: 'https://www.usatoday.com' },
+  ],
+  world: [
+    { name: 'BBC News', url: 'https://www.bbc.com/news' },
+    { name: 'Al Jazeera', url: 'https://www.aljazeera.com' },
+    { name: 'Reuters World', url: 'https://www.reuters.com/world' },
+    { name: 'The Guardian', url: 'https://www.theguardian.com' },
+    { name: 'Reasons to be Cheerful', url: 'https://reasonstobecheerful.world' },
+  ],
+};
+---
+<BaseLayout title="Sources">
+  <div class="prose">
+    <h1 class="page-title">Sources</h1>
+    <p>
+      We monitor these reputable news outlets. Every published story is verified
+      by at least two independent sources from this list.
+    </p>
+
+    <h2>Seattle &amp; Pacific Northwest</h2>
+    <ul>
+      {sources.seattle.map(s => (
+        <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
+      ))}
+    </ul>
+
+    <h2>United States</h2>
+    <ul>
+      {sources.usa.map(s => (
+        <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
+      ))}
+    </ul>
+
+    <h2>World</h2>
+    <ul>
+      {sources.world.map(s => (
+        <li><a href={s.url} target="_blank" rel="noopener">{s.name}</a></li>
+      ))}
+    </ul>
+  </div>
+</BaseLayout>

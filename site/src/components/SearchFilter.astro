@@ -1,0 +1,107 @@
+---
+// Client-side search and filter component
+const base = import.meta.env.BASE_URL;
+---
+<div class="search-container">
+  <label for="search-input" class="sr-only">Search stories</label>
+  <input
+    type="search"
+    id="search-input"
+    class="search-input"
+    placeholder="Search stories..."
+    aria-label="Search stories"
+  />
+</div>
+<div class="filter-bar" role="group" aria-label="Filter by region">
+  <button class="filter-btn active" data-region="all">All</button>
+  <button class="filter-btn" data-region="seattle">Seattle</button>
+  <button class="filter-btn" data-region="usa">USA</button>
+  <button class="filter-btn" data-region="world">World</button>
+</div>
+<div id="story-results" class="story-grid">
+  <slot />
+</div>
+<div id="no-results" class="no-results" style="display:none;">
+  <p>No stories match your search. Try different keywords or clear your filter.</p>
+</div>
+
+<script define:vars={{ base }}>
+  let searchIndex = [];
+
+  async function loadIndex() {
+    try {
+      const res = await fetch(`${base}search-index.json`);
+      searchIndex = await res.json();
+    } catch (e) {
+      // Index not yet built or empty
+      searchIndex = [];
+    }
+  }
+
+  function filterAndSearch() {
+    const query = document.getElementById('search-input').value.toLowerCase().trim();
+    const activeBtn = document.querySelector('.filter-btn.active');
+    const region = activeBtn ? activeBtn.dataset.region : 'all';
+    const cards = document.querySelectorAll('#story-results .story-card');
+    let visible = 0;
+
+    if (searchIndex.length === 0) {
+      // Fallback: filter DOM directly
+      cards.forEach(card => {
+        const text = card.textContent.toLowerCase();
+        const cardRegion = card.querySelector('.region-badge')?.textContent?.toLowerCase() || '';
+        const matchesQuery = !query || text.includes(query);
+        const matchesRegion = region === 'all' || cardRegion === region;
+        const show = matchesQuery && matchesRegion;
+        card.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+    } else {
+      // Use search index
+      const matchingSlugs = new Set();
+      searchIndex.forEach(item => {
+        const text = `${item.title} ${item.summary} ${(item.tags || []).join(' ')}`.toLowerCase();
+        const matchesQuery = !query || text.includes(query);
+        const matchesRegion = region === 'all' || item.region === region;
+        if (matchesQuery && matchesRegion) matchingSlugs.add(item.slug);
+      });
+
+      cards.forEach(card => {
+        const link = card.querySelector('h3 a');
+        if (!link) return;
+        const href = link.getAttribute('href') || '';
+        const slug = href.split('/stories/')[1]?.replace(/\/$/, '') || '';
+        const show = matchingSlugs.has(slug);
+        card.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+    }
+
+    document.getElementById('no-results').style.display = visible === 0 ? '' : 'none';
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadIndex();
+    document.getElementById('search-input').addEventListener('input', filterAndSearch);
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filterAndSearch();
+      });
+    });
+  });
+</script>
+
+<style>
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    border: 0;
+  }
+</style>

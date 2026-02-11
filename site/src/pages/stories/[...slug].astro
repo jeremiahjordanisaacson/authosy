@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const stories = await getCollection('stories');
+  return stories.map((story) => ({
+    params: { slug: story.id.replace(/\.md$/, '') },
+    props: { story },
+  }));
+}
+
+const { story } = Astro.props;
+const { Content } = await render(story);
+
+const dateStr = new Date(story.data.date_published).toLocaleDateString('en-US', {
+  year: 'numeric', month: 'long', day: 'numeric'
+});
+---
+<BaseLayout title={story.data.title} description={story.data.summary}>
+  <article class="story-article">
+    <h1>{story.data.title}</h1>
+
+    <div class="story-meta-header">
+      <span class="region-badge">{story.data.region}</span>
+      <time datetime={story.data.date_published}>{dateStr}</time>
+      <span>Positivity: {Math.round(story.data.positivity_score * 100)}%</span>
+      <span>Confidence: {Math.round(story.data.confidence_score * 100)}%</span>
+    </div>
+
+    <div class="story-tags" style="margin-bottom:1.5rem;">
+      {story.data.tags.map((tag: string) => <span class="tag">{tag}</span>)}
+    </div>
+
+    <div class="story-body">
+      <Content />
+    </div>
+
+    <div class="story-sources">
+      <h2>Sources</h2>
+      <ul>
+        {story.data.source_urls.map((url: string) => (
+          <li><a href={url} target="_blank" rel="noopener">{url}</a></li>
+        ))}
+      </ul>
+    </div>
+  </article>
+</BaseLayout>

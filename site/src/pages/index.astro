@@ -1,0 +1,35 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import StoryCard from '../components/StoryCard.astro';
+import SearchFilter from '../components/SearchFilter.astro';
+import { getCollection } from 'astro:content';
+
+const allStories = await getCollection('stories');
+const stories = allStories.sort((a, b) =>
+  new Date(b.data.date_published).getTime() - new Date(a.data.date_published).getTime()
+);
+---
+<BaseLayout title="Home">
+  <h1 class="page-title">Uplifting News, Verified</h1>
+  <p class="page-subtitle">Good things are happening. We find them, verify them, and share them with you.</p>
+
+  {stories.length > 0 ? (
+    <SearchFilter>
+      {stories.map((story) => (
+        <StoryCard
+          slug={story.id}
+          title={story.data.title}
+          region={story.data.region}
+          date_published={story.data.date_published}
+          summary={story.data.summary}
+          tags={story.data.tags}
+        />
+      ))}
+    </SearchFilter>
+  ) : (
+    <div class="empty-state">
+      <h2>Stories are on the way</h2>
+      <p>Our service is gathering and verifying uplifting news. Check back soon.</p>
+    </div>
+  )}
+</BaseLayout>

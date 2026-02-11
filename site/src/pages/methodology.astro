@@ -1,0 +1,64 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="Methodology">
+  <div class="prose">
+    <h1 class="page-title">Methodology</h1>
+
+    <p>
+      Transparency matters. Here is exactly how Authosy discovers, verifies,
+      and publishes each story.
+    </p>
+
+    <h2>1. Discovery</h2>
+    <p>
+      We monitor RSS feeds from dozens of reputable news outlets covering Seattle,
+      national US news, and world news. The full list of sources is available on
+      the <a href={`${import.meta.env.BASE_URL}sources/`}>Sources page</a>.
+    </p>
+
+    <h2>2. Positivity filtering</h2>
+    <p>
+      Each candidate story is evaluated by an AI classifier that scores its
+      positivity on a 0&ndash;1 scale. Only stories scoring above 0.6 proceed.
+      This filters out crime reports, political conflict, disasters, and
+      sensationalism.
+    </p>
+
+    <h2>3. Multi-source verification</h2>
+    <p>
+      We cluster related stories using TF-IDF cosine similarity on their titles
+      and descriptions. A story must appear in at least two distinct reputable
+      sources to be published. This ensures we are not amplifying single-source
+      rumors or press releases.
+    </p>
+
+    <h2>4. Rewriting</h2>
+    <p>
+      An AI rewrites each verified story in Authosy's voice. The rules are strict:
+    </p>
+    <ul>
+      <li>No copying of original paragraphs&mdash;all phrasing is original.</li>
+      <li>Minimal short quotes only when necessary for attribution.</li>
+      <li>Tone is optimistic and grounded, never sensational.</li>
+      <li>No political commentary or editorial opinion.</li>
+      <li>500&ndash;900 words.</li>
+    </ul>
+
+    <h2>5. Source attribution</h2>
+    <p>
+      Every published story includes direct links to all corroborating sources.
+      We encourage readers to read the original reporting.
+    </p>
+
+    <h2>6. Scoring</h2>
+    <p>
+      Each story carries two scores:
+    </p>
+    <ul>
+      <li><strong>Positivity score</strong> (0&ndash;1): How uplifting the story is.</li>
+      <li><strong>Confidence score</strong> (0&ndash;1): How confident we are in multi-source
+        verification.</li>
+    </ul>
+  </div>
+</BaseLayout>

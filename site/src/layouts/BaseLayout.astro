@@ -1,0 +1,50 @@
+---
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = 'Uplifting, verified news from Seattle, the USA, and the world.' } = Astro.props;
+const base = import.meta.env.BASE_URL;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content={description} />
+  <title>{title} | Authosy</title>
+  <link rel="alternate" type="application/rss+xml" title="Authosy RSS" href={`${base}rss.xml`} />
+  <style>
+    @import '../styles/global.css';
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container">
+      <a href={base} class="site-logo">Authosy</a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href={base}>Home</a>
+        <a href={`${base}seattle/`}>Seattle</a>
+        <a href={`${base}usa/`}>USA</a>
+        <a href={`${base}world/`}>World</a>
+        <a href={`${base}about/`}>About</a>
+        <a href={`${base}methodology/`}>Methodology</a>
+        <a href={`${base}sources/`}>Sources</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="container">
+    <slot />
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; {new Date().getFullYear()} Authosy. Uplifting news, verified and rewritten with care.</p>
+      <p><a href={`${base}rss.xml`}>RSS Feed</a> &middot; <a href={`${base}methodology/`}>Our Methodology</a></p>
+    </div>
+  </footer>
+</body>
+</html>
