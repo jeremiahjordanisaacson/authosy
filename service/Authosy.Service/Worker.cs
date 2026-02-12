@@ -14,6 +14,7 @@ public class Worker : BackgroundService
     private readonly MarkdownService _markdownService;
     private readonly StateService _stateService;
     private readonly GitService _gitService;
+    private readonly ImageService _imageService;
     private readonly bool _runOnce;
 
     public Worker(
@@ -25,6 +26,7 @@ public class Worker : BackgroundService
         MarkdownService markdownService,
         StateService stateService,
         GitService gitService,
+        ImageService imageService,
         IConfiguration configuration)
     {
         _logger = logger;
@@ -35,6 +37,7 @@ public class Worker : BackgroundService
         _markdownService = markdownService;
         _stateService = stateService;
         _gitService = gitService;
+        _imageService = imageService;
         _runOnce = configuration.GetValue<bool>("RunOnce");
     }
 
@@ -179,11 +182,32 @@ public class Worker : BackgroundService
         var publishedCount = 0;
         var semaphore = new SemaphoreSlim(_config.RewriteConcurrency);
 
+        // Load existing story titles for dedup
+        var contentPath = Path.IsPathRooted(_config.SiteContentPath)
+            ? _config.SiteContentPath
+            : Path.Combine(_config.RepoPath, _config.SiteContentPath);
+        var existingTitles = _clusteringService.GetExistingStoryTitles(contentPath);
+        var publishedThisRun = new List<string>();
+        var titleLock = new object();
+
         var tasks = clusters.Select(async cluster =>
         {
             await semaphore.WaitAsync(ct);
             try
             {
+                // Semantic dedup: check cluster title against existing stories + stories published this run
+                List<string> allTitles;
+                lock (titleLock)
+                {
+                    allTitles = existingTitles.Concat(publishedThisRun).ToList();
+                }
+
+                if (_clusteringService.IsDuplicateTitle(cluster.PrimaryTitle, allTitles))
+                {
+                    _logger.LogInformation("  Skipping duplicate: {Title}", cluster.PrimaryTitle);
+                    return;
+                }
+
                 var sourceUrls = cluster.Items.Select(i => i.Url).ToList();
                 var storyId = _markdownService.GenerateStoryId(sourceUrls);
 
@@ -197,19 +221,54 @@ public class Worker : BackgroundService
                     return;
                 }
 
+                // Also dedup on the rewritten title
+                lock (titleLock)
+                {
+                    allTitles = existingTitles.Concat(publishedThisRun).ToList();
+                }
+                if (_clusteringService.IsDuplicateTitle(result.Title, allTitles))
+                {
+                    _logger.LogInformation("  Skipping duplicate (rewritten title): {Title}", result.Title);
+                    return;
+                }
+
                 result.Id = storyId;
                 result.SourceUrls = sourceUrls;
+
+                // Generate images for the story
+                var imageFiles = new List<string>();
+                try
+                {
+                    var updatedBody = await _imageService.GenerateImagesForStoryAsync(result, ct);
+                    if (updatedBody != null)
+                    {
+                        result.Body = updatedBody.Body;
+                        imageFiles = updatedBody.ImageFiles;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Image generation failed for {Title}, publishing without images", result.Title);
+                }
 
                 // Write markdown immediately
                 var filepath = _markdownService.WriteStory(result);
                 _stateService.MarkPublished(sourceUrls);
 
-                // Commit and push this story right away
-                var pushed = await _gitService.CommitAndPushAsync(new List<string> { filepath }, ct);
+                // Track published title for intra-run dedup
+                lock (titleLock)
+                {
+                    publishedThisRun.Add(result.Title);
+                }
+
+                // Commit and push this story (plus any images) right away
+                var filesToCommit = new List<string> { filepath };
+                filesToCommit.AddRange(imageFiles);
+                var pushed = await _gitService.CommitAndPushAsync(filesToCommit, ct);
                 if (pushed)
                 {
                     Interlocked.Increment(ref publishedCount);
-                    _logger.LogInformation("  Shipped: {Title} -> {Id}", result.Title, storyId);
+                    _logger.LogInformation("  Shipped: {Title} -> {Id} ({ImageCount} images)", result.Title, storyId, imageFiles.Count);
                 }
                 else
                 {

@@ -138,6 +138,15 @@ public class ClaudeCliService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Sends a raw prompt and returns the text response (no JSON parsing/retry).
+    /// Used by ImageService for generating image prompts.
+    /// </summary>
+    public async Task<string?> SendPromptAsync(string prompt, CancellationToken ct)
+    {
+        return await SendToSession(prompt, ct);
+    }
+
     private async Task<string?> SendWithRetry(string prompt, CancellationToken ct)
     {
         string? lastError = null;

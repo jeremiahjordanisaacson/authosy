@@ -140,6 +140,74 @@ public class ClusteringService
         return dot / (Math.Sqrt(magA) * Math.Sqrt(magB));
     }
 
+    /// <summary>
+    /// Checks if a candidate title is too similar to any existing story title using Jaccard word similarity.
+    /// Returns true if the title is a duplicate (similarity > threshold).
+    /// </summary>
+    public bool IsDuplicateTitle(string candidateTitle, IEnumerable<string> existingTitles, double threshold = 0.5)
+    {
+        var candidateWords = TokenizeForJaccard(candidateTitle);
+        if (candidateWords.Count == 0) return false;
+
+        foreach (var existing in existingTitles)
+        {
+            var existingWords = TokenizeForJaccard(existing);
+            if (existingWords.Count == 0) continue;
+
+            var intersection = candidateWords.Intersect(existingWords).Count();
+            var union = candidateWords.Union(existingWords).Count();
+            var similarity = union == 0 ? 0.0 : (double)intersection / union;
+
+            if (similarity > threshold)
+            {
+                _logger.LogInformation("Duplicate detected: \"{Candidate}\" similar to \"{Existing}\" (Jaccard={Similarity:F2})",
+                    candidateTitle, existing, similarity);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Gets all existing story titles by reading frontmatter from markdown files in the content directory.
+    /// </summary>
+    public List<string> GetExistingStoryTitles(string contentPath)
+    {
+        var titles = new List<string>();
+        if (!Directory.Exists(contentPath)) return titles;
+
+        foreach (var file in Directory.GetFiles(contentPath, "*.md"))
+        {
+            try
+            {
+                var lines = File.ReadLines(file).Take(20);
+                foreach (var line in lines)
+                {
+                    if (line.StartsWith("title:"))
+                    {
+                        var title = line["title:".Length..].Trim().Trim('"');
+                        if (!string.IsNullOrEmpty(title))
+                            titles.Add(title);
+                        break;
+                    }
+                }
+            }
+            catch { /* skip unreadable files */ }
+        }
+
+        return titles;
+    }
+
+    private static HashSet<string> TokenizeForJaccard(string text)
+    {
+        return text.ToLowerInvariant()
+            .Split(new[] { ' ', '\t', '\n', '\r', '.', ',', '!', '?', ';', ':', '"', '\'', '(', ')', '-' },
+                StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => t.Length > 2)
+            .ToHashSet();
+    }
+
     private static string GetDomain(string url)
     {
         try { return new Uri(url).Host.ToLowerInvariant(); }

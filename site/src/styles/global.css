@@ -508,6 +508,13 @@ img { max-width: 100%; height: auto; display: block; }
   letter-spacing: -0.01em;
 }
 
+.story-article .story-body img {
+  width: 100%;
+  border-radius: var(--radius);
+  margin: 1.5rem 0;
+  box-shadow: var(--shadow-md);
+}
+
 .story-article .story-body blockquote {
   border-left: 3px solid var(--c-amber);
   padding: 0.25rem 0 0.25rem 1.25rem;

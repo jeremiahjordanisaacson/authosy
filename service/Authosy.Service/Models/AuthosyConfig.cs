@@ -25,6 +25,15 @@ public class AuthosyConfig
         "Reasons to be Cheerful"
     };
     public List<FeedConfig> Feeds { get; set; } = new();
+    public ImageGenerationConfig ImageGeneration { get; set; } = new();
+}
+
+public class ImageGenerationConfig
+{
+    public bool Enabled { get; set; } = true;
+    public string Model { get; set; } = "gpt-5";
+    public string ImageSize { get; set; } = "1024x1024";
+    public int MaxImagesPerStory { get; set; } = 5;
 }
 
 public class FeedConfig
