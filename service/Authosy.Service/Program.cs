@@ -30,7 +30,7 @@ try
     builder.Services.AddSingleton<MarkdownService>();
     builder.Services.AddSingleton<StateService>();
     builder.Services.AddSingleton<GitService>();
-    builder.Services.AddHttpClient<ImageService>();
+    builder.Services.AddSingleton<ImageService>();
 
     // Windows Service support
     builder.Services.AddWindowsService(options =>

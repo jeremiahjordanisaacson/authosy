@@ -147,6 +147,85 @@ public class ClaudeCliService : IAsyncDisposable
         return await SendToSession(prompt, ct);
     }
 
+    /// <summary>
+    /// Generates an image using the Copilot SDK with ResponseFormat.Image.
+    /// Uses the user's existing Copilot license — no separate API key needed.
+    /// </summary>
+    public async Task<AssistantImageData?> GenerateImageAsync(string prompt, Models.ImageGenerationConfig imageConfig, CancellationToken ct)
+    {
+        try
+        {
+            await EnsureInitializedAsync();
+
+            await using var session = await _client!.CreateSessionAsync(
+                new SessionConfig
+                {
+                    Model = imageConfig.Model,
+                    InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+                });
+
+            AssistantImageData? imageData = null;
+            var done = new TaskCompletionSource();
+            string? error = null;
+
+            session.On(evt =>
+            {
+                if (evt is AssistantImageEvent img)
+                {
+                    imageData = img.Data.Image;
+                }
+                else if (evt is SessionIdleEvent)
+                {
+                    done.TrySetResult();
+                }
+                else if (evt is SessionErrorEvent errEvt)
+                {
+                    error = errEvt.Data?.Message ?? "Unknown error";
+                    _logger.LogWarning("Copilot image session error: {Error}", error);
+                    done.TrySetResult();
+                }
+            });
+
+            await session.SendAsync(new MessageOptions
+            {
+                Prompt = prompt,
+                ResponseFormat = ResponseFormat.Image,
+                ImageOptions = new ImageOptions
+                {
+                    Size = imageConfig.ImageSize,
+                    Quality = "hd",
+                    Style = "natural"
+                }
+            });
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(_config.ClaudeTimeoutSeconds));
+
+            try
+            {
+                await done.Task.WaitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogError("Image generation timed out after {Timeout}s", _config.ClaudeTimeoutSeconds);
+                return null;
+            }
+
+            if (error != null)
+            {
+                _logger.LogError("Image generation error: {Error}", error);
+                return null;
+            }
+
+            return imageData;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to generate image via Copilot SDK");
+            return null;
+        }
+    }
+
     private async Task<string?> SendWithRetry(string prompt, CancellationToken ct)
     {
         string? lastError = null;

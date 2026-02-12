@@ -1,6 +1,4 @@
-using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Authosy.Service.Models;
 using GitHub.Copilot.SDK;
@@ -13,7 +11,6 @@ public class ImageService
 {
     private readonly AuthosyConfig _config;
     private readonly ILogger<ImageService> _logger;
-    private readonly HttpClient _httpClient;
     private readonly ClaudeCliService _claudeService;
 
     private static readonly string ImagePromptTemplate = """
@@ -35,12 +32,10 @@ public class ImageService
     public ImageService(
         IOptions<AuthosyConfig> config,
         ILogger<ImageService> logger,
-        HttpClient httpClient,
         ClaudeCliService claudeService)
     {
         _config = config.Value;
         _logger = logger;
-        _httpClient = httpClient;
         _claudeService = claudeService;
     }
 
@@ -49,13 +44,6 @@ public class ImageService
         if (!_config.ImageGeneration.Enabled)
         {
             _logger.LogInformation("Image generation is disabled");
-            return null;
-        }
-
-        var openAiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-        if (string.IsNullOrEmpty(openAiKey))
-        {
-            _logger.LogWarning("OPENAI_API_KEY not set, skipping image generation");
             return null;
         }
 
@@ -81,7 +69,7 @@ public class ImageService
             var section = sectionsToProcess[i];
             try
             {
-                // Generate image prompt using Copilot SDK
+                // Step 1: Generate image prompt text using Copilot SDK
                 var imagePrompt = await GenerateImagePromptAsync(story.Title, section.Heading, section.Text, ct);
                 if (string.IsNullOrEmpty(imagePrompt))
                 {
@@ -89,17 +77,18 @@ public class ImageService
                     continue;
                 }
 
-                // Call OpenAI Images API
-                var imageBytes = await CallOpenAiImagesApiAsync(imagePrompt, openAiKey, ct);
-                if (imageBytes == null)
+                // Step 2: Generate image via Copilot SDK using ResponseFormat.Image
+                var imageData = await _claudeService.GenerateImageAsync(imagePrompt, _config.ImageGeneration, ct);
+                if (imageData == null)
                 {
                     _logger.LogWarning("Failed to generate image for section: {Section}", section.Heading);
                     continue;
                 }
 
                 // Save image
-                var imageFilename = $"section-{i + 1}.png";
+                var imageFilename = $"section-{i + 1}.{imageData.Format}";
                 var imagePath = Path.Combine(imageDir, imageFilename);
+                var imageBytes = Convert.FromBase64String(imageData.Base64);
                 await File.WriteAllBytesAsync(imagePath, imageBytes, ct);
                 imageFiles.Add(imagePath);
 
@@ -147,7 +136,6 @@ public class ImageService
             {
                 if (!foundFirstH2)
                 {
-                    // Save intro
                     var intro = introText.ToString().Trim();
                     if (!string.IsNullOrEmpty(intro))
                     {
@@ -179,7 +167,6 @@ public class ImageService
         }
         else if (!foundFirstH2)
         {
-            // No h2 headers at all — treat the whole body as one section
             var fullText = body.Trim();
             if (!string.IsNullOrEmpty(fullText))
             {
@@ -201,48 +188,6 @@ public class ImageService
         return result?.Trim();
     }
 
-    private async Task<byte[]?> CallOpenAiImagesApiAsync(string prompt, string apiKey, CancellationToken ct)
-    {
-        try
-        {
-            var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/images/generations")
-            {
-                Headers = { { "Authorization", $"Bearer {apiKey}" } },
-                Content = JsonContent.Create(new
-                {
-                    model = "dall-e-3",
-                    prompt = prompt,
-                    n = 1,
-                    size = _config.ImageGeneration.ImageSize,
-                    response_format = "b64_json"
-                })
-            };
-
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
-
-            var response = await _httpClient.SendAsync(request, timeoutCts.Token);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                _logger.LogError("OpenAI Images API error ({Status}): {Error}", response.StatusCode, errorBody);
-                return null;
-            }
-
-            var json = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
-            var b64 = json.GetProperty("data")[0].GetProperty("b64_json").GetString();
-            if (string.IsNullOrEmpty(b64)) return null;
-
-            return Convert.FromBase64String(b64);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to call OpenAI Images API");
-            return null;
-        }
-    }
-
     private string GetImageDirectory(string storyId)
     {
         var publicPath = Path.IsPathRooted(_config.SiteContentPath)
@@ -260,12 +205,10 @@ public class ImageService
         {
             if (heading == "Introduction" || heading == "Article")
             {
-                // Insert image at the very beginning of the body
                 body = imageMarkdown + "\n" + body;
             }
             else
             {
-                // Insert after the ## heading line
                 var headingPattern = $"## {Regex.Escape(heading)}";
                 var match = Regex.Match(body, headingPattern);
                 if (match.Success)

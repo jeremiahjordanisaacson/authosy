@@ -1,0 +1,262 @@
+Feature Spec: Image Generation Support in GitHub Copilot SDK
+=============================================================
+
+Status: Proposal
+Author: Authosy Project
+Date: 2026-02-12
+
+Problem
+-------
+The GitHub Copilot CLI supports model selection via /model, including models
+like GPT-5 that natively support image generation. However, the Copilot SDK
+(NuGet: GitHub.Copilot.SDK) has no way to request or receive generated images.
+
+The SDK's event system only emits text-based events:
+  - AssistantMessageEvent (final text)
+  - AssistantMessageDeltaEvent (streaming text chunks)
+  - AssistantReasoningEvent / AssistantReasoningDeltaEvent
+  - ToolExecutionStartEvent / ToolExecutionCompleteEvent
+  - SessionIdleEvent / SessionErrorEvent
+
+There is no event for image/binary/media content. This forces SDK consumers to
+bypass the SDK entirely and call vendor-specific APIs (e.g., OpenAI Images API)
+with separate API keys and separate billing accounts.
+
+Why This MUST Use the Copilot License (Not BYOK, Not Separate API Keys)
+------------------------------------------------------------------------
+This feature must be built into the Copilot SDK's core authenticated path —
+the same path that uses the user's existing GitHub Copilot license and premium
+requests. Here's why:
+
+1. THE CAPABILITY ALREADY EXISTS — BEHIND A WALL
+
+   An enterprise user with a GitHub Copilot license can already select GPT-5
+   via /model in the CLI. GPT-5 natively supports image generation. The user
+   is already paying for access to this model and its full capabilities through
+   their enterprise agreement. The SDK simply doesn't surface the image output.
+
+   The model can do it. The license covers it. The SDK just won't deliver it.
+
+2. ENTERPRISE USERS SHOULD NOT PAY TWICE
+
+   Today, an enterprise user who wants to build an application that generates
+   images through a Copilot-supported model must:
+     a) Use their Copilot license to access GPT-5 for text (covered)
+     b) Create a separate OpenAI account
+     c) Add a credit card to that account
+     d) Pay OpenAI per-image on top of their existing Copilot spend
+     e) Manage a separate OPENAI_API_KEY credential
+
+   This is the same model, the same vendor, the same capability — but the
+   user is paying two different entities for what their Copilot license
+   should already cover. The enterprise is already paying GitHub for premium
+   requests against these models. Image generation from those models should
+   count as premium requests, not as a separate billing stream.
+
+3. THE BYOK WORKAROUND DEFEATS THE PURPOSE
+
+   The SDK offers a BYOK (Bring Your Own Key) provider option. This does not
+   solve the problem — it makes it worse:
+     - It requires the user to procure and manage their own API key
+     - It bypasses Copilot billing entirely, so the enterprise gets zero
+       visibility into this usage through their existing GitHub admin tools
+     - It introduces a separate auth flow, separate rate limits, separate
+       error handling, and separate credential rotation
+     - It fragments the developer experience: text goes through Copilot,
+       images go through a side channel
+
+   BYOK exists for custom/self-hosted models. It should not be the answer
+   for capabilities that ship with models the Copilot license already covers.
+
+4. SECURITY AND COMPLIANCE
+
+   Enterprise customers choose GitHub Copilot precisely because it comes with
+   enterprise-grade auth, audit logging, policy controls, and data residency
+   guarantees. Forcing image generation through a separate vendor API:
+     - Bypasses enterprise SSO and SCIM-managed access
+     - Creates credentials outside the enterprise's GitHub token lifecycle
+     - Sends prompts to a vendor API without Copilot's content filtering
+     - Produces usage that doesn't appear in Copilot's admin dashboards
+     - May violate data governance policies that require all AI interactions
+       to flow through the approved Copilot channel
+
+5. MODEL PORTABILITY
+
+   Today we call the OpenAI Images API because GPT-5 is our image model.
+   Tomorrow, GitHub might add image generation to Gemini 3 or another model.
+   If image generation is a first-class SDK feature routed through Copilot's
+   auth, switching models is a one-line config change. If it's a BYOK/vendor
+   hack, every model switch means a new vendor account, new API format, new
+   credentials, new billing relationship.
+
+Current Workaround (And Why It's Unacceptable)
+-----------------------------------------------
+Our project (Authosy) currently:
+  1. Uses the Copilot SDK (GPT-5 session) to generate a text image prompt
+  2. Calls POST https://api.openai.com/v1/images/generations directly
+  3. Requires a separate OPENAI_API_KEY environment variable
+  4. Handles base64 decoding, error handling, rate limiting separately
+
+This means:
+  - Users need a separate OpenAI account and API key
+  - Billing goes through OpenAI instead of through GitHub Copilot
+  - Enterprise admins can't see or control this usage
+  - No unified auth — Copilot SDK handles its own auth, but image gen can't use it
+  - Model-specific: if we switch to a different image-capable model, the API changes
+  - The SDK already routes to GPT-5 — it should be able to use its full capabilities
+  - Users who only have a Copilot license (no personal OpenAI account) are blocked
+
+The right answer is: if I can send a text prompt to GPT-5 through the Copilot
+SDK using my Copilot license, I should be able to send an image generation
+prompt to the same model through the same SDK using the same license.
+
+Proposed SDK Changes
+--------------------
+
+1. New Event Type: AssistantImageEvent
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   A new event emitted when the model generates an image. Routed through
+   the same Copilot auth and billing as AssistantMessageEvent.
+
+   class AssistantImageEvent : SessionEvent
+   {
+       AssistantImageData Data { get; }
+   }
+
+   class AssistantImageData
+   {
+       string Format { get; }       // "png", "jpeg", "webp"
+       string Base64 { get; }       // base64-encoded image bytes
+       string? Url { get; }         // optional: temporary URL if available
+       string? RevisedPrompt { get; } // the prompt the model actually used
+       int Width { get; }
+       int Height { get; }
+   }
+
+   Billing: Image generation requests should consume premium requests from
+   the user's existing Copilot plan, just like text generation does.
+
+2. Image Generation via MessageOptions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   Allow requesting image generation through the existing SendAsync flow.
+   No new auth, no new credentials, no new billing accounts.
+
+   await session.SendAsync(new MessageOptions
+   {
+       Prompt = "Generate a photo-realistic image of a butterfly on a hedge",
+       ResponseFormat = ResponseFormat.Image,  // NEW
+       ImageOptions = new ImageOptions          // NEW
+       {
+           Size = "1024x1024",
+           Quality = "hd",
+           Style = "natural"
+       }
+   });
+
+   The model would then emit an AssistantImageEvent instead of (or in
+   addition to) an AssistantMessageEvent.
+
+   The request flows through Copilot's existing proxy layer, which already
+   handles auth, rate limiting, content filtering, and usage metering. The
+   proxy just needs to support the image generation endpoint for models that
+   have this capability, the same way it already supports chat completions.
+
+3. Mixed Content Responses
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+   Some models return text + images in a single response. The SDK should
+   support interleaved content:
+
+   class AssistantContentEvent : SessionEvent
+   {
+       List<ContentBlock> Blocks { get; }
+   }
+
+   abstract class ContentBlock { }
+   class TextBlock : ContentBlock { string Text { get; } }
+   class ImageBlock : ContentBlock { AssistantImageData Image { get; } }
+
+   This would allow a single prompt like "Write an article about butterflies
+   and illustrate each section" to return both text and images — all through
+   the Copilot license, all metered as premium requests.
+
+4. Model Capability Discovery
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   The SDK already has ListModelsAsync(). Extend it to report capabilities:
+
+   var capabilities = await client.GetModelCapabilitiesAsync("gpt-5");
+   // capabilities.SupportsImageGeneration == true
+   // capabilities.SupportsVision == true
+   // capabilities.SupportsReasoning == true
+   // capabilities.MaxOutputTokens == 128000
+
+   This lets applications gracefully degrade when a model doesn't support
+   image generation, without hard-coding model names.
+
+Minimal Viable Change
+---------------------
+If the full spec is too large, the absolute minimum would be:
+
+  1. Add AssistantImageEvent to the event system
+  2. Add ResponseFormat.Image to MessageOptions
+  3. Route image generation requests through the existing Copilot proxy/auth
+  4. Bill image generation as premium requests on the user's existing plan
+
+This would let SDK consumers generate images through any Copilot-supported
+model that has image capabilities, using the same auth and billing as text,
+with zero additional API keys, zero additional accounts, zero additional cost
+beyond what their enterprise is already paying for Copilot.
+
+Example Usage (Desired End State)
+---------------------------------
+
+   // Same auth as text. Same license. Same billing. Same SDK.
+   await using var session = await client.CreateSessionAsync(
+       new SessionConfig { Model = "gpt-5" });
+
+   string? imageBase64 = null;
+
+   session.On(evt =>
+   {
+       if (evt is AssistantImageEvent img)
+       {
+           imageBase64 = img.Data.Base64;
+       }
+       else if (evt is SessionIdleEvent)
+       {
+           done.TrySetResult();
+       }
+   });
+
+   await session.SendAsync(new MessageOptions
+   {
+       Prompt = "A photo-realistic image of a sunrise over Puget Sound",
+       ResponseFormat = ResponseFormat.Image,
+       ImageOptions = new ImageOptions { Size = "1024x1024" }
+   });
+
+   await done.Task;
+   File.WriteAllBytes("sunrise.png", Convert.FromBase64String(imageBase64));
+
+   // That's it. No OPENAI_API_KEY. No separate account. No BYOK.
+   // Just the Copilot license the enterprise already pays for.
+
+Impact
+------
+This would unblock any Copilot SDK application that needs image generation:
+  - News sites generating article illustrations (our use case)
+  - Documentation tools generating diagrams
+  - Design tools generating mockups
+  - Educational apps generating visual aids
+  - Internal enterprise tools that can't add external vendor API keys
+  - Any app where the developer has a Copilot license but not a personal
+    OpenAI/vendor account
+
+Without this feature, every SDK consumer that needs images must:
+  - Create a separate vendor account
+  - Manage separate credentials
+  - Pay separately for a capability their Copilot license already covers
+  - Bypass enterprise security and compliance controls
+  - Write vendor-specific integration code that breaks on model switches
+
+The Copilot SDK's value proposition is "one SDK, one license, any model."
+Image generation is the gap where that promise breaks down.
