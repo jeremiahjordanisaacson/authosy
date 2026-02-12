@@ -1,15 +1,17 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Authosy.Service.Models;
+using GitHub.Copilot.SDK;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Authosy.Service.Services;
 
-public class ClaudeCliService
+public class ClaudeCliService : IAsyncDisposable
 {
     private readonly AuthosyConfig _config;
     private readonly ILogger<ClaudeCliService> _logger;
+    private CopilotClient? _client;
+    private bool _initialized;
 
     private static readonly string ClassifyPromptTemplate = """
         You are a news classifier. Analyze the following news item and return ONLY valid JSON (no markdown, no explanation).
@@ -19,13 +21,13 @@ public class ClaudeCliService
         Source: {SOURCE}
 
         Return this exact JSON structure:
-        {{
+        {
           "positivity_score": <float 0-1, how uplifting/positive this story is>,
           "is_positive": <boolean, true if positivity_score >= 0.6>,
           "region": "<seattle|usa|world>",
           "tags": ["<tag1>", "<tag2>", "<tag3>"],
           "summary": "<one sentence summary>"
-        }}
+        }
 
         Rules:
         - positivity_score: 0 = very negative, 1 = very positive
@@ -41,7 +43,7 @@ public class ClaudeCliService
         {SOURCES}
 
         Return this exact JSON structure:
-        {{
+        {
           "title": "<compelling, original headline, no clickbait>",
           "region": "<seattle|usa|world>",
           "summary": "<2-3 sentence summary>",
@@ -49,7 +51,7 @@ public class ClaudeCliService
           "positivity_score": <float 0-1>,
           "confidence_score": <float 0-1, based on how well sources corroborate>,
           "body": "<full article body in markdown format>"
-        }}
+        }
 
         Writing rules:
         - Use entirely original phrasing. Do NOT copy paragraphs from sources.
@@ -73,6 +75,22 @@ public class ClaudeCliService
         _logger = logger;
     }
 
+    private async Task EnsureInitializedAsync()
+    {
+        if (_initialized) return;
+
+        _client = new CopilotClient(new CopilotClientOptions
+        {
+            AutoStart = true,
+            AutoRestart = true,
+            LogLevel = "info",
+        });
+
+        await _client.StartAsync();
+        _initialized = true;
+        _logger.LogInformation("Copilot SDK client initialized");
+    }
+
     public async Task<ClassificationResult?> ClassifyAsync(FeedItem item, CancellationToken ct)
     {
         var prompt = ClassifyPromptTemplate
@@ -80,7 +98,7 @@ public class ClaudeCliService
             .Replace("{DESCRIPTION}", item.Description)
             .Replace("{SOURCE}", item.SourceName);
 
-        var json = await CallClaudeWithRetry(prompt, ct);
+        var json = await SendWithRetry(prompt, ct);
         if (json == null) return null;
 
         try
@@ -101,7 +119,7 @@ public class ClaudeCliService
 
         var prompt = RewritePromptTemplate.Replace("{SOURCES}", sourcesText);
 
-        var json = await CallClaudeWithRetry(prompt, ct);
+        var json = await SendWithRetry(prompt, ct);
         if (json == null) return null;
 
         try
@@ -120,9 +138,8 @@ public class ClaudeCliService
         }
     }
 
-    private async Task<string?> CallClaudeWithRetry(string prompt, CancellationToken ct)
+    private async Task<string?> SendWithRetry(string prompt, CancellationToken ct)
     {
-        string? lastOutput = null;
         string? lastError = null;
 
         for (int attempt = 0; attempt <= _config.MaxRetries; attempt++)
@@ -131,14 +148,12 @@ public class ClaudeCliService
                 ? prompt
                 : RepairPromptTemplate.Replace("{ERROR}", lastError ?? "Invalid JSON") + "\n\nOriginal prompt:\n" + prompt;
 
-            lastOutput = await CallClaudeCli(currentPrompt, ct);
-            if (lastOutput == null) return null;
+            var output = await SendToSession(currentPrompt, ct);
+            if (output == null) return null;
 
-            // Try to extract JSON from the output
-            var json = ExtractJson(lastOutput);
+            var json = ExtractJson(output);
             if (json != null)
             {
-                // Validate it parses
                 try
                 {
                     JsonDocument.Parse(json);
@@ -153,79 +168,87 @@ public class ClaudeCliService
             else
             {
                 lastError = "No JSON object found in output";
-                _logger.LogWarning("Attempt {Attempt}: No JSON found in Claude output", attempt + 1);
+                _logger.LogWarning("Attempt {Attempt}: No JSON found in response", attempt + 1);
             }
         }
 
-        _logger.LogError("All {Max} attempts to get valid JSON from Claude failed", _config.MaxRetries + 1);
+        _logger.LogError("All {Max} attempts to get valid JSON failed", _config.MaxRetries + 1);
         return null;
     }
 
-    private async Task<string?> CallClaudeCli(string prompt, CancellationToken ct)
+    private async Task<string?> SendToSession(string prompt, CancellationToken ct)
     {
         try
         {
-            var psi = new ProcessStartInfo
+            await EnsureInitializedAsync();
+
+            await using var session = await _client!.CreateSessionAsync(
+                new SessionConfig
+                {
+                    Model = _config.CopilotModel,
+                    SystemMessage = new SystemMessageConfig
+                    {
+                        Mode = SystemMessageMode.Append,
+                        Content = "You are a JSON-only responder. Always return raw JSON without markdown fences or explanations.",
+                    },
+                    InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+                });
+
+            var responseContent = "";
+            var done = new TaskCompletionSource();
+            string? error = null;
+
+            session.On(evt =>
             {
-                FileName = _config.ClaudeCliPath,
-                Arguments = "--print",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                if (evt is AssistantMessageEvent msg)
+                {
+                    responseContent = msg.Data.Content;
+                }
+                else if (evt is SessionIdleEvent)
+                {
+                    done.TrySetResult();
+                }
+                else if (evt is SessionErrorEvent errEvt)
+                {
+                    error = errEvt.Data?.Message ?? "Unknown error";
+                    _logger.LogWarning("Copilot session error: {Error}", error);
+                    done.TrySetResult();
+                }
+            });
 
-            using var process = new Process { StartInfo = psi };
-            process.Start();
+            await session.SendAsync(new MessageOptions { Prompt = prompt });
 
-            // Write prompt to stdin
-            await process.StandardInput.WriteAsync(prompt);
-            process.StandardInput.Close();
-
-            // Read output with timeout
+            // Wait with timeout
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(_config.ClaudeTimeoutSeconds));
 
-            var outputTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            var errorTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
-
             try
             {
-                await process.WaitForExitAsync(timeoutCts.Token);
-                var output = await outputTask;
-                var error = await errorTask;
-
-                if (!string.IsNullOrWhiteSpace(error))
-                {
-                    _logger.LogWarning("Claude CLI stderr: {Error}", error);
-                }
-
-                if (process.ExitCode != 0)
-                {
-                    _logger.LogError("Claude CLI exited with code {Code}", process.ExitCode);
-                    return null;
-                }
-
-                return output;
+                await done.Task.WaitAsync(timeoutCts.Token);
             }
             catch (OperationCanceledException)
             {
-                _logger.LogError("Claude CLI timed out after {Timeout}s, killing process", _config.ClaudeTimeoutSeconds);
-                try { process.Kill(entireProcessTree: true); } catch { }
+                _logger.LogError("Copilot session timed out after {Timeout}s", _config.ClaudeTimeoutSeconds);
                 return null;
             }
+
+            if (error != null)
+            {
+                _logger.LogError("Copilot returned error: {Error}", error);
+                return null;
+            }
+
+            return responseContent;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to invoke Claude CLI");
+            _logger.LogError(ex, "Failed to communicate with Copilot SDK");
             return null;
         }
     }
 
     private static string? ExtractJson(string text)
     {
-        // Try to find a JSON object in the text
         text = text.Trim();
 
         // Remove markdown code fences if present
@@ -252,6 +275,16 @@ public class ClaudeCliService
         }
 
         return null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_client != null)
+        {
+            await _client.DisposeAsync();
+            _client = null;
+        }
+        _initialized = false;
     }
 
     private static readonly JsonSerializerOptions JsonOpts = new()

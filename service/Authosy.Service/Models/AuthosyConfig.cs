@@ -8,6 +8,7 @@ public class AuthosyConfig
     public int MinClusterSize { get; set; } = 2;
     public double CosineSimilarityThreshold { get; set; } = 0.25;
     public string ClaudeCliPath { get; set; } = "claude";
+    public string CopilotModel { get; set; } = "claude-sonnet-4-5-20250929";
     public int ClaudeTimeoutSeconds { get; set; } = 120;
     public int MaxRetries { get; set; } = 2;
     public string RepoPath { get; set; } = "";
