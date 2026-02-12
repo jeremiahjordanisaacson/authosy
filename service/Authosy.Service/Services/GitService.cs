@@ -9,6 +9,7 @@ public class GitService
 {
     private readonly AuthosyConfig _config;
     private readonly ILogger<GitService> _logger;
+    private readonly SemaphoreSlim _gitLock = new(1, 1);
 
     public GitService(IOptions<AuthosyConfig> config, ILogger<GitService> logger)
     {
@@ -25,6 +26,8 @@ public class GitService
             return false;
         }
 
+        // Serialize git operations — only one commit/push at a time
+        await _gitLock.WaitAsync(ct);
         try
         {
             // Stage all new story files
@@ -90,6 +93,10 @@ public class GitService
         {
             _logger.LogError(ex, "Git commit/push failed");
             return false;
+        }
+        finally
+        {
+            _gitLock.Release();
         }
     }
 

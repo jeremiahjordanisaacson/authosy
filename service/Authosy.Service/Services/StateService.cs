@@ -9,6 +9,7 @@ public class StateService
 {
     private readonly string _stateFilePath;
     private readonly ILogger<StateService> _logger;
+    private readonly object _lock = new();
     private PublishedState _state;
 
     public StateService(IOptions<AuthosyConfig> config, ILogger<StateService> logger)
@@ -23,17 +24,20 @@ public class StateService
 
     public bool IsAlreadyPublished(string sourceUrl)
     {
-        return _state.PublishedSourceUrls.Contains(sourceUrl);
+        lock (_lock) { return _state.PublishedSourceUrls.Contains(sourceUrl); }
     }
 
     public void MarkPublished(IEnumerable<string> sourceUrls)
     {
-        foreach (var url in sourceUrls)
+        lock (_lock)
         {
-            _state.PublishedSourceUrls.Add(url);
+            foreach (var url in sourceUrls)
+            {
+                _state.PublishedSourceUrls.Add(url);
+            }
+            _state.LastUpdated = DateTime.UtcNow;
+            Save();
         }
-        _state.LastUpdated = DateTime.UtcNow;
-        Save();
     }
 
     private PublishedState Load()
